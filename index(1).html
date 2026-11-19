@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retención de dígitos · Estudio</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<style>
+:root{--ink:#243247;--muted:#6d7b8e;--line:#e2e8f0;--bg:#f5f7fb;--accent:#647fa8;--soft:#eaf0f8}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui, sans-serif}
+header{background:white;border-bottom:1px solid var(--line);padding:18px 5vw}
+h1{font-size:21px;margin:0}
+h2{font-size:20px;margin:0 0 8px}
+.sub{color:var(--muted);font-size:13px}
+main{max-width:1100px;margin:26px auto;padding:0 16px}
+.card{background:white;border:1px solid var(--line);border-radius:15px;padding:20px;margin-bottom:15px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:13px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+label{display:block;color:var(--muted);font-size:13px;margin-bottom:5px}
+input,select{width:100%;padding:11px;border:1px solid var(--line);border-radius:9px;font:inherit}
+button{border:0;border-radius:9px;background:var(--accent);color:white;padding:11px 15px;font:inherit;font-weight:650;cursor:pointer}
+button.secondary{background:var(--soft);color:var(--ink)}
+button:disabled{opacity:.4}
+.tabs{display:flex;gap:8px;margin-bottom:14px}
+.tabs button{background:var(--soft);color:var(--ink)}
+.tabs .active{background:var(--accent);color:white}
+.hidden{display:none!important}
+.pill{display:inline-block;padding:4px 10px;border-radius:30px;background:var(--soft);font-size:12px}
+.notice{padding:12px;background:#f0f4f9;border-radius:9px;color:#4c6078;font-size:13px}
+.sequence{font-size:40px;letter-spacing:12px;text-align:center;font-weight:750;padding:20px}
+.timer{text-align:center;font-size:28px;font-weight:750;color:var(--accent)}
+.answer{font-size:25px;text-align:center;letter-spacing:5px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
+th{color:var(--muted)}
+canvas{max-width:150px}
+.projSeq{font-size:76px;letter-spacing:18px;text-align:center;font-weight:800;min-height:130px;padding:20px 0}
+.projSeq.faded{color:#b8c3d3}
+.expected{text-align:center;color:var(--muted);font-size:15px;min-height:22px}
+#projector:fullscreen{display:flex;flex-direction:column;justify-content:center;border-radius:0}
+#projector:fullscreen .projSeq{font-size:130px}
+@media(max-width:600px){.card{padding:16px}.sequence{font-size:32px;letter-spacing:7px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Retención de dígitos</h1>
+  <div class="sub">Experimento sincronizado · 3 grupos de 30 participantes</div>
+</header>
+<main>
+  <div class="tabs">
+    <button id="tabAdmin" class="active" onclick="showTab('admin')">Investigador/a</button>
+    <button id="tabPart" onclick="showTab('participant')">Participante</button>
+  </div>
+
+  <section id="admin">
+    <div class="card">
+      <h2>Panel del investigador</h2>
+      <p class="sub">Crea las tres salas de trabajo y activa el audio antes de empezar.</p>
+      <div class="row" style="margin-bottom:15px">
+        <button onclick="testAudio()" style="background:#2b8a3e">🔊 1. Activar / Probar Audio</button>
+        <span class="sub">Pulsa esto primero para desbloquear la voz en el navegador.</span>
+      </div>
+      <div class="grid">
+        <div><label>URL pública de la web</label><input id="publicUrl" placeholder="https://tu-usuario.github.io/tu-repo"></div>
+        <div><label>Prefijo de códigos</label><input id="prefix" value="DIG" maxlength="8"></div>
+      </div>
+      <br>
+      <div class="row">
+        <button onclick="createGroups()">Crear las 3 salas</button>
+        <button class="secondary" onclick="refreshAll()">Actualizar resultados</button>
+        <span id="adminStatus" class="sub"></span>
+      </div>
+      <p class="sub" id="voiceStatus" style="margin-bottom:0"></p>
+    </div>
+    <!-- Pantalla de la investigadora: muestra los dígitos y los lee por el altavoz -->
+    <div class="card hidden" id="projector">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <span class="pill" id="projGroup"></span>
+          <h2 id="projStage" style="margin-top:6px"></h2>
+        </div>
+        <div class="row">
+          <span class="sub" id="projTrial"></span>
+          <button class="secondary" onclick="toggleFullscreen()">Pantalla completa</button>
+          <button class="secondary" onclick="stopProjector()">Detener</button>
+        </div>
+      </div>
+      <div class="projSeq" id="projSeq"></div>
+      <div class="expected" id="projExpected"></div>
+      <div class="timer" id="projClock"></div>
+      <p class="sub" id="projPhase" style="text-align:center"></p>
+    </div>
+    <div id="rooms" class="grid"></div>
+    <div id="allResults" class="card hidden">
+      <div class="row" style="justify-content:space-between">
+        <h2>Resultados de los tres grupos</h2>
+        <button class="secondary" onclick="exportCSV()">Descargar CSV</button>
+      </div>
+      <div style="overflow:auto">
+        <table>
+          <thead><tr><th>Grupo</th><th>ID</th><th>Estado</th><th>Respuestas</th><th>Aciertos</th><th>Directos</th><th>Inversos</th><th>Secuencia</th></tr></thead>
+          <tbody id="resultRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="participant" class="hidden">
+    <div class="card" id="joinPanel">
+      <h2>Acceso del participante</h2>
+      <p class="sub">Introduce el código de la sala y tu identificador.</p>
+      <div class="grid">
+        <div><label>Código de grupo</label><input id="pCode" placeholder="DIG-G1"></div>
+        <div><label>Identificador individual</label><input id="pId" placeholder="P01" maxlength="8"></div>
+      </div>
+      <br>
+      <button onclick="join()">Entrar y quedar a la espera</button>
+      <span id="joinStatus" class="sub"></span>
+    </div>
+
+    <div class="card hidden" id="taskPanel">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <span class="pill" id="groupPill">Grupo 1</span>
+          <h2 id="stageTitle">Esperando al investigador</h2>
+        </div>
+        <div class="sub" id="trialCount"></div>
+      </div>
+      <p class="sub" id="instruction">Permanece en esta pantalla. El investigador marcará el ritmo.</p>
+      <div class="notice" id="waitBox">Esperando a que el investigador inicie la fase.</div>
+      <div id="liveArea" class="hidden">
+        <div class="sequence hidden" id="sequence">🔊</div>
+        <div class="timer" id="clock"></div>
+        <div id="responseBox" class="hidden">
+          <label style="text-align:center">Introduce tu respuesta</label>
+          <input id="answer" class="answer" inputmode="numeric" autocomplete="off">
+          <div class="row" style="justify-content:center;margin-top:10px">
+            <button id="sendBtn" onclick="sendAnswer()">Enviar</button>
+          </div>
+        </div>
+        <p class="sub" id="phaseText" style="text-align:center"></p>
+      </div>
+      <div class="notice hidden" id="finished">Has terminado. Gracias por participar.</div>
+    </div>
+  </section>
+
+  <div class="notice">Prototipo experimental educativo, no es una administración oficial del WAIS-IV ni produce puntuaciones clínicas.</div>
+</main>
+
+<script>
+const SUPABASE_URL='https://mxmmzcbuxqqrwowjcfna.supabase.co';
+const SUPABASE_ANON_KEY='sb_publishable_rpHD5mBTIO4_46I2GfKg-g_j1ib1AM9';
+const ADMIN_PASSWORD='1234';
+
+const configured=true; 
+const db=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+
+const stages=[
+{name:'Dígitos directos',instruction:'Escucha y repite los números en el mismo orden.',items:[['4 8','7 2'],['3 9 1','6 2 8'],['5 1 7 3','8 4 2 9'],['2 6 9 4 1','7 3 5 8 2'],['9 2 4 6 1 8','3 7 1 5 9 2'],['6 1 8 3 5 9 2','4 9 2 7 1 6 8'],['5 8 2 9 1 6 4 7','3 6 9 1 4 8 2 5'],['7 2 5 9 3 1 8 4 6','2 8 4 1 7 9 5 3 6']]},
+{name:'Dígitos inversos',instruction:'Escucha y repite los números en orden inverso.',items:[['6 2','9 4'],['3 8 1','5 2 7'],['7 1 4 9','2 8 5 3'],['4 9 2 6 1','8 3 7 5 2'],['1 6 3 8 5 2','9 4 7 1 6 3'],['5 2 8 1 7 4 9','3 6 1 9 4 7 2'],['8 3 6 1 9 4 2 7','2 7 4 9 1 5 8 3'],['4 1 8 6 2 9 5 3 7','9 5 2 7 4 1 8 6 3']]},
+{name:'Dígitos en secuencia',instruction:'Escucha y escribe los números de menor a mayor.',items:[['8 2','6 1'],['5 9 2','7 3 1'],['8 4 1 6','3 9 2 7'],['6 2 9 4 1','8 3 5 2 7'],['9 1 6 3 8 2','4 7 2 9 5 1'],['5 8 1 7 3 9 2','6 2 9 4 1 8 5'],['7 3 9 1 5 8 2 6','4 8 2 7 1 9 3 5'],['6 2 9 4 1 8 3 7 5','8 5 1 9 3 6 2 7 4']]}
+];
+
+const trials=stages.flatMap((s,si)=>s.items.flatMap((pair,pi)=>pair.map((seq,ai)=>({stage:si,item:pi,attempt:ai,seq}))));
+const $=id=>document.getElementById(id);
+let rooms=[],session=null,participant=null,participantRow=null,offset=0,channel=null,timer=null,lastIdx=-1,submitted=new Set(),results={};
+
+// ---- Temporización (igual para investigadora y participantes) ----
+const TRIAL_MS=20000;    // duración total de cada ensayo
+const LISTEN_MS=10000;   // fase de escucha
+const DIGIT_MS=1000;     // un dígito por segundo
+const DIGIT_LEAD=600;    // pequeño margen antes del primer dígito
+const START_DELAY=4000;  // cuenta atrás antes del primer ensayo (da tiempo a que lleguen los móviles)
+
+// ---- Estado del proyector (solo pantalla de la investigadora) ----
+let proj=null,projTimer=null,spoken=new Set(),esVoice=null,pollTimer=null;
+
+function showTab(t){
+  if(t==='admin'){
+    let pwd = prompt('Introduce la contraseña de investigador:');
+    if(pwd !== ADMIN_PASSWORD){
+      alert('Contraseña incorrecta.');
+      return;
+    }
+  }
+  $('admin').classList.toggle('hidden',t!=='admin');
+  $('participant').classList.toggle('hidden',t!=='participant');
+  $('tabAdmin').classList.toggle('active',t==='admin');
+  $('tabPart').classList.toggle('active',t==='participant');
+}
+
+function transform(seq,stage){let a=seq.split(' ');if(stage===1)a.reverse();if(stage===2)a.sort((x,y)=>+x-+y);return a.join('')}
+function esc(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+
+async function serverClock(){
+  let a=Date.now();
+  let {data,error}=await db.rpc('get_server_time');
+  let b=Date.now();
+  if(error)throw error;
+  offset=new Date(data).getTime()-((a+b)/2);
+}
+
+async function createGroups(){
+  if(!db){$('adminStatus').textContent='Configura Supabase.';return}
+  let prefix=$('prefix').value.trim().toUpperCase()||'DIG';
+  rooms=[];
+  for(let i=1;i<=3;i++){
+    let code=`${prefix}-G${i}`;
+    let {data:old}=await db.from('sessions').select('*').eq('join_code',code).maybeSingle();
+    if(old){rooms.push(old);continue}
+    let {data,error}=await db.from('sessions').insert({join_code:code,group_label:`Grupo ${i}`,status:'waiting'}).select().single();
+    if(error){$('adminStatus').textContent=error.message;return}
+    rooms.push(data);
+  }
+  renderRooms();
+  await refreshAll();
+  $('adminStatus').textContent='Salas creadas.';
+}
+
+function renderRooms(){
+  let base=$('publicUrl').value.trim().replace(/\/$/,'');
+  $('rooms').innerHTML=rooms.map((r,i)=>{
+    let link=base?`${base}/?code=${encodeURIComponent(r.join_code)}`:'';
+    let stLbl=r.status==='waiting'?'En espera':r.status==='stage0'?'Fase 1: Directos':r.status==='stage1'?'Fase 2: Inversos':r.status==='stage2'?'Fase 3: Secuencia':'Finalizado';
+    return `<div class="card"><div class="row" style="justify-content:space-between"><h2>Grupo ${i+1}</h2><span class="pill">${stLbl}</span></div><p><b>${esc(r.join_code)}</b></p><div class="sub">Participantes: <b id="count${i}">0/30</b></div><div class="sub" style="margin:8px 0;word-break:break-all">${esc(link||'Añade la URL pública')}</div><div class="row" style="flex-direction:column;align-items:stretch;gap:6px"><button onclick="advanceGroup('${r.id}','stage0')">▶ Iniciar Dígitos Directos</button><button onclick="advanceGroup('${r.id}','stage1')" class="secondary">▶ Iniciar Dígitos Inversos</button><button onclick="advanceGroup('${r.id}','stage2')" class="secondary">▶ Iniciar Dígitos en Secuencia</button></div><div style="margin-top:10px"><button class="secondary" onclick="copyText('${link}')" style="width:100%">Copiar enlace</button></div><div id="qr${i}"></div></div>`;
+  }).join('');
+  if(base&&window.QRCode)rooms.forEach((r,i)=>{let c=document.createElement('canvas');$('qr'+i).appendChild(c);QRCode.toCanvas(c,`${base}/?code=${r.join_code}`,{width:110,margin:1},()=>{})});
+}
+
+async function advanceGroup(id, targetStatus){
+  if(!db)return;
+  // Este clic "desbloquea" la voz en el navegador de la investigadora
+  if('speechSynthesis' in window){pickVoice();speechSynthesis.resume();}
+  // El inicio se fija con la hora del SERVIDOR (no la del portátil) para que todos compartan el mismo reloj
+  try{await serverClock()}catch(e){$('adminStatus').textContent='Aviso: no se pudo leer la hora del servidor; se usa la del ordenador.'}
+  let startIso=new Date(Date.now()+offset+START_DELAY).toISOString();
+  let {data,error}=await db.from('sessions').update({status:targetStatus, started_at:startIso}).eq('id',id).select().single();
+  if(error){alert('Error al cambiar fase: '+error.message);return}
+  rooms=rooms.map(r=>r.id===id?data:r);
+  renderRooms();
+  startProjector(data);
+}
+
+// ===================== PROYECTOR DE LA INVESTIGADORA =====================
+// Muestra los dígitos uno a uno y los lee en voz alta por el altavoz conectado a este ordenador.
+
+function pickVoice(){
+  let v=speechSynthesis.getVoices();
+  esVoice=v.find(x=>x.lang==='es-ES')||v.find(x=>(x.lang||'').toLowerCase().startsWith('es'))||null;
+  if($('voiceStatus'))$('voiceStatus').textContent=esVoice?`Voz: ${esVoice.name} (${esVoice.lang})`:'No se ha encontrado una voz en español en este navegador; prueba con Chrome o Edge.';
+}
+if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
+
+function sayDigit(d){
+  if(!('speechSynthesis' in window))return;
+  let u=new SpeechSynthesisUtterance(d);
+  u.lang='es-ES'; if(esVoice)u.voice=esVoice; u.rate=0.9;
+  speechSynthesis.resume();
+  speechSynthesis.speak(u);
+}
+
+function startProjector(s){
+  proj=s; spoken=new Set();
+  $('projector').classList.remove('hidden');
+  $('projGroup').textContent=s.group_label;
+  if(projTimer)clearInterval(projTimer);
+  projTimer=setInterval(updateProjector,40);
+  updateProjector();
+  $('projector').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function stopProjector(){
+  if(projTimer)clearInterval(projTimer);
+  projTimer=null;
+  if('speechSynthesis' in window)speechSynthesis.cancel();
+  if(document.fullscreenElement)document.exitFullscreen();
+  $('projector').classList.add('hidden');
+}
+
+function toggleFullscreen(){
+  if(document.fullscreenElement)document.exitFullscreen();
+  else $('projector').requestFullscreen?.();
+}
+
+function updateProjector(){
+  let st=trialState(proj);
+  let si=stageOf(proj.status);
+  $('projStage').textContent=si>=0?stages[si].name:'';
+  $('projSeq').classList.remove('faded');
+
+  if(st.kind==='idle'){$('projSeq').textContent='';$('projClock').textContent='';$('projPhase').textContent='En espera';$('projExpected').textContent='';return}
+  if(st.kind==='countdown'){
+    $('projTrial').textContent='';
+    $('projSeq').textContent='';
+    $('projExpected').textContent='';
+    $('projClock').textContent=Math.ceil(st.ms/1000)+' s';
+    $('projPhase').textContent='La fase comienza en…';
+    return;
+  }
+  if(st.kind==='done'){
+    clearInterval(projTimer);projTimer=null;
+    $('projTrial').textContent='';
+    $('projSeq').textContent='✓';
+    $('projExpected').textContent='';
+    $('projClock').textContent='';
+    $('projPhase').textContent='Fase finalizada. Puedes iniciar la siguiente desde la tarjeta del grupo.';
+    refreshAll();
+    return;
+  }
+
+  let t=trials[st.idx], digits=t.seq.split(' ');
+  $('projTrial').textContent=`Ensayo ${st.localIdx+1} de ${st.total} · ítem ${t.item+1}, intento ${t.attempt+1}`;
+
+  if(st.within<LISTEN_MS){
+    // Índice del dígito que toca ahora (un dígito por segundo)
+    let k=Math.floor((st.within-DIGIT_LEAD)/DIGIT_MS);
+    let shown=Math.max(0,Math.min(digits.length,k+1));
+    $('projSeq').textContent=digits.slice(0,shown).join(' ')||'·';
+    if(k>=0&&k<digits.length){
+      let key=st.idx+':'+k;
+      let late=st.within-DIGIT_LEAD-k*DIGIT_MS;
+      // Solo se dice si estamos en su momento (evita una ráfaga si la pestaña estuvo en segundo plano)
+      if(!spoken.has(key)&&late<400){spoken.add(key);sayDigit(digits[k]);}
+    }
+    $('projExpected').textContent='';
+    $('projClock').textContent=Math.ceil((LISTEN_MS-st.within)/1000)+' s';
+    $('projPhase').textContent='Presentación de la secuencia';
+  }else{
+    $('projSeq').textContent=digits.join(' ');
+    $('projSeq').classList.add('faded');
+    $('projExpected').textContent='Respuesta correcta: '+transform(t.seq,t.stage);
+    $('projClock').textContent=Math.ceil((TRIAL_MS-st.within)/1000)+' s';
+    $('projPhase').textContent='Los participantes están respondiendo';
+  }
+}
+
+async function refreshAll(){
+  if(!db)return;
+  if(!rooms.length){let {data}=await db.from('sessions').select('*').order('group_label');rooms=data||[];renderRooms()}
+  let all=[];
+  for(let [i,r] of rooms.entries()){
+    let [{data:p},{data:a}]=await Promise.all([db.from('participants').select('*').eq('session_id',r.id),db.from('responses').select('*').eq('session_id',r.id)]);
+    $(`count${i}`)&&($(`count${i}`).textContent=(p||[]).length+'/30');
+    for(let person of (p||[])){
+      let ar=(a||[]).filter(x=>x.participant_id===person.id);
+      let by=[0,1,2].map(s=>ar.filter(x=>x.stage===s&&x.correct).length);
+      all.push({group:r.group_label,id:person.participant_code,completed:person.completed,progress:person.progress||0,answers:ar.length,correct:ar.filter(x=>x.correct).length,by});
+    }
+    results[r.id]={participants:p||[],answers:a||[]};
+  }
+  $('allResults').classList.remove('hidden');
+  $('resultRows').innerHTML=all.map(x=>`<tr><td>${esc(x.group)}</td><td>${esc(x.id)}</td><td>${x.completed?'Finalizado':x.progress+'/'+trials.length}</td><td>${x.answers}</td><td>${x.correct}</td><td>${x.by[0]}</td><td>${x.by[1]}</td><td>${x.by[2]}</td></tr>`).join('');
+}
+
+function copyText(t){if(t)navigator.clipboard?.writeText(t)}
+
+async function join(){
+  if(!db){$('joinStatus').textContent='Configura Supabase.';return}
+  let code=$('pCode').value.trim().toUpperCase(), id=$('pId').value.trim().toUpperCase();
+  if(!/^P(0[1-9]|[12][0-9]|30)$/.test(id)){$('joinStatus').textContent='Usa P01 a P30.';return}
+  let {data:s,error}=await db.from('sessions').select('*').eq('join_code',code).maybeSingle();
+  if(error||!s){$('joinStatus').textContent='Sala no encontrada.';return}
+  if(s.status==='closed'){$('joinStatus').textContent='Sala cerrada.';return}
+  let {data:p}=await db.from('participants').select('*').eq('session_id',s.id).eq('participant_code',id).maybeSingle();
+  if(!p){
+    let {data:newP,error:pe}=await db.from('participants').insert({session_id:s.id,participant_code:id,progress:0,completed:false}).select().single();
+    if(pe){$('joinStatus').textContent=pe.message;return}
+    p=newP;
+  }
+  session=s; participant=id; participantRow=p;
+  try{await serverClock()}catch(e){}
+  $('joinPanel').classList.add('hidden');
+  $('taskPanel').classList.remove('hidden');
+  $('groupPill').textContent=s.group_label;
+  evalSessionState();
+  listen();
+  // Respaldo por si se corta el tiempo real (wifi del aula): se consulta la sala cada 4 s
+  if(pollTimer)clearInterval(pollTimer);
+  pollTimer=setInterval(async()=>{
+    let {data}=await db.from('sessions').select('*').eq('id',session.id).maybeSingle();
+    if(data&&(data.status!==session.status||data.started_at!==session.started_at)){session=data;evalSessionState();}
+  },4000);
+}
+
+function listen(){
+  if(channel)db.removeChannel(channel);
+  channel=db.channel('sync-'+session.id).on('postgres_changes',{event:'UPDATE',schema:'public',table:'sessions',filter:'id=eq.'+session.id},async payload=>{
+    session=payload.new;
+    try{await serverClock()}catch(e){}
+    evalSessionState();
+  }).subscribe();
+}
+
+function stageOf(status){return status==='stage0'?0:status==='stage1'?1:status==='stage2'?2:-1}
+
+function getStageIndices(status){
+  let s=stageOf(status), n=stages[0].items.length*2; // 16 ensayos por fase
+  if(s<0) return {start:0,end:-1};
+  return {start:s*n,end:s*n+n-1};
+}
+
+// Dónde estamos ahora mismo en la fase, calculado con el reloj del servidor
+function trialState(s){
+  let range=getStageIndices(s.status);
+  if(range.end===-1||!s.started_at) return {kind:'idle'};
+  let elapsed=Date.now()+offset-new Date(s.started_at).getTime();
+  if(elapsed<0) return {kind:'countdown',ms:-elapsed,range};
+  let localIdx=Math.floor(elapsed/TRIAL_MS), idx=range.start+localIdx;
+  if(idx>range.end) return {kind:'done',range};
+  return {kind:'trial',idx,localIdx,within:elapsed%TRIAL_MS,range,total:range.end-range.start+1};
+}
+
+// ===================== VISTA DEL PARTICIPANTE =====================
+// No reproduce audio ni muestra los dígitos: solo cuenta atrás y casilla de respuesta.
+
+function showWait(msg){
+  $('waitBox').classList.remove('hidden');
+  $('waitBox').textContent=msg;
+  $('liveArea').classList.add('hidden');
+}
+
+function evalSessionState(){
+  if(timer)clearInterval(timer);
+  if(stageOf(session.status)<0){
+    showWait('Esperando a que el investigador inicie la siguiente fase...');
+    return;
+  }
+  timer=setInterval(updateTimeline,40);
+  updateTimeline();
+}
+
+// Si el móvil se bloqueó y se saltó el final de un ensayo, se guarda igualmente como "sin respuesta a tiempo"
+function flushPending(range){
+  if(lastIdx>=range.start&&lastIdx<=range.end&&!submitted.has(lastIdx))saveResponse(lastIdx,true);
+}
+
+function updateTimeline(){
+  let st=trialState(session);
+  if(st.kind==='idle'){showWait('Esperando a que el investigador inicie la siguiente fase...');return}
+  let stg=stages[stageOf(session.status)];
+  $('stageTitle').textContent=stg.name;
+  $('instruction').textContent=stg.instruction;
+
+  if(st.kind==='countdown'){
+    $('trialCount').textContent='';
+    showWait(`Atención: la fase empieza en ${Math.ceil(st.ms/1000)} s. Escucha el altavoz.`);
+    return;
+  }
+  if(st.kind==='done'){
+    clearInterval(timer);
+    flushPending(st.range);
+    lastIdx=-1;
+    $('trialCount').textContent='';
+    showWait('Fase finalizada. Espera las instrucciones del investigador para la siguiente prueba.');
+    return;
+  }
+
+  $('waitBox').classList.add('hidden');
+  $('liveArea').classList.remove('hidden');
+  $('trialCount').textContent=`Ensayo ${st.localIdx+1} de ${st.total}`;
+
+  if(st.idx!==lastIdx){
+    flushPending(st.range);
+    lastIdx=st.idx;
+    $('answer').value='';
+    $('sendBtn').disabled=false;
+  }
+
+  if(st.within<LISTEN_MS){
+    $('sequence').classList.remove('hidden');
+    $('sequence').textContent='🔊';
+    $('clock').textContent=Math.ceil((LISTEN_MS-st.within)/1000)+' s';
+    $('responseBox').classList.add('hidden');
+    $('phaseText').textContent='Escucha la secuencia por el altavoz';
+  }else{
+    $('sequence').classList.add('hidden');
+    $('clock').textContent=Math.ceil((TRIAL_MS-st.within)/1000)+' s';
+    let done=submitted.has(st.idx);
+    $('phaseText').textContent=done?'Respuesta registrada.':'Responde antes de que termine el tiempo.';
+    $('responseBox').classList.toggle('hidden',done);
+    if(st.within>=TRIAL_MS-100&&!done)saveResponse(st.idx,true);
+  }
+}
+
+function testAudio(){
+  if(!('speechSynthesis' in window)){
+    alert('Tu navegador no soporta síntesis de voz.');
+    return;
+  }
+  pickVoice();
+  speechSynthesis.cancel();
+  let u=new SpeechSynthesisUtterance('Audio activado. Uno, dos, tres.');
+  u.lang='es-ES'; if(esVoice)u.voice=esVoice;
+  speechSynthesis.speak(u);
+  $('adminStatus').textContent='Si has oído la voz por el altavoz, el audio está listo.';
+}
+
+async function sendAnswer(){
+  let st=trialState(session);
+  if(st.kind!=='trial'||st.within<LISTEN_MS||submitted.has(st.idx))return;
+  await saveResponse(st.idx,false);
+}
+
+async function saveResponse(idx,timeout){
+  if(submitted.has(idx))return;
+  submitted.add(idx);
+  $('responseBox').classList.add('hidden');
+  $('sendBtn').disabled=true;
+  let t=trials[idx],raw=$('answer').value.replace(/\D/g,'').slice(0,20),expected=transform(t.seq,t.stage);
+  let {error}=await db.from('responses').upsert({session_id:session.id,participant_id:participantRow.id,trial_index:idx,stage:t.stage,item_index:t.item,attempt:t.attempt,response:raw,expected,correct:raw===expected,timeout},{onConflict:'participant_id,trial_index'});
+  if(error){submitted.delete(idx);$('phaseText').textContent='Error al guardar.';return}
+  let progress=Math.max(participantRow.progress||0,idx+1);
+  participantRow.progress=progress;
+  await db.from('participants').update({progress}).eq('id',participantRow.id);
+  $('phaseText').textContent='Respuesta registrada.';
+}
+
+async function exportCSV(){
+  let rows=[['grupo','participante','ensayo','etapa','respuesta','respuesta_esperada','correcta','timeout']];
+  for(let r of rooms){
+    let x=results[r.id]||{};
+    for(let a of (x.answers||[])){
+      let p=(x.participants||[]).find(q=>q.id===a.participant_id);
+      rows.push([r.group_label,p?.participant_code||'',a.trial_index+1,stages[a.stage].name,a.response,a.expected,a.correct?1:0,a.timeout?1:0]);
+    }
+  }
+  let csv=rows.map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(';')).join('\n');
+  let blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='resultados_90_alumnos.csv';a.click();URL.revokeObjectURL(url);
+}
+
+$('answer').addEventListener('keydown',e=>{if(e.key==='Enter')sendAnswer()});
+
+let params=new URLSearchParams(location.search);
+if(params.get('code')){$('pCode').value=params.get('code');showTab('participant')}
+</script>
+</body>
+</html>
+
