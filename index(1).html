@@ -20,6 +20,8 @@ main{max-width:1100px;margin:26px auto;padding:0 16px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 label{display:block;color:var(--muted);font-size:13px;margin-bottom:5px}
 input,select{width:100%;padding:11px;border:1px solid var(--line);border-radius:9px;font:inherit}
+input[type="range"]{padding:4px 0;border:0;background:transparent}
+input[type="file"]{padding:8px;background:var(--bg)}
 button{border:0;border-radius:9px;background:var(--accent);color:white;padding:11px 15px;font:inherit;font-weight:650;cursor:pointer}
 button.secondary{background:var(--soft);color:var(--ink)}
 button:disabled{opacity:.4}
@@ -61,13 +63,39 @@ canvas{max-width:150px}
       <p class="sub">Crea las tres salas de trabajo y activa el audio antes de empezar.</p>
       <div class="row" style="margin-bottom:15px">
         <button onclick="testAudio()" style="background:#2b8a3e">🔊 1. Activar / Probar Audio</button>
-        <span class="sub">Pulsa esto primero para desbloquear la voz en el navegador.</span>
+        <span class="sub">Pulsa esto primero para desbloquear la voz y la música en el navegador.</span>
       </div>
       <div class="grid">
         <div><label>URL pública de la web</label><input id="publicUrl" placeholder="https://tu-usuario.github.io/tu-repo"></div>
         <div><label>Prefijo de códigos</label><input id="prefix" value="DIG" maxlength="8"></div>
       </div>
-      <br>
+
+      <div class="card" style="background:#f9fbfe;margin-top:14px;margin-bottom:14px;padding:15px">
+        <h2 style="font-size:16px;margin-bottom:4px">Música de fondo (Grupos 2 y 3 · altavoz del investigador)</h2>
+        <p class="sub" style="margin-top:0">Por defecto intenta cargar <b>grupo2.mp3</b> y <b>grupo3.mp3</b>; si no existen o quieres cambiarlas ahora, selecciona un archivo desde tu ordenador.</p>
+        <div class="grid">
+          <div>
+            <label>Audio Grupo 2</label>
+            <input type="file" id="musicFile2" accept="audio/*" onchange="selectMusicFile(2,this)">
+            <div class="sub" id="musicLabel2" style="margin-top:4px">Buscando grupo2.mp3…</div>
+          </div>
+          <div>
+            <label>Audio Grupo 3</label>
+            <input type="file" id="musicFile3" accept="audio/*" onchange="selectMusicFile(3,this)">
+            <div class="sub" id="musicLabel3" style="margin-top:4px">Buscando grupo3.mp3…</div>
+          </div>
+          <div>
+            <label>Volumen de música: <span id="volValue">25%</span></label>
+            <input type="range" id="musicVol" min="0" max="100" value="25" oninput="updateMusicVolume(this.value)">
+            <div class="row" style="margin-top:6px">
+              <button type="button" class="secondary" onclick="togglePreviewMusic(2)" style="padding:7px 11px;font-size:12px">▶ Probar G2</button>
+              <button type="button" class="secondary" onclick="togglePreviewMusic(3)" style="padding:7px 11px;font-size:12px">▶ Probar G3</button>
+              <button type="button" class="secondary" onclick="stopBackgroundMusic()" style="padding:7px 11px;font-size:12px">⏹ Parar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="row">
         <button onclick="createGroups()">Crear las 3 salas</button>
         <button class="secondary" onclick="refreshAll()">Actualizar resultados</button>
@@ -75,6 +103,7 @@ canvas{max-width:150px}
       </div>
       <p class="sub" id="voiceStatus" style="margin-bottom:0"></p>
     </div>
+
     <!-- Pantalla de la investigadora: muestra los dígitos y los lee por el altavoz -->
     <div class="card hidden" id="projector">
       <div class="row" style="justify-content:space-between">
@@ -93,7 +122,9 @@ canvas{max-width:150px}
       <div class="timer" id="projClock"></div>
       <p class="sub" id="projPhase" style="text-align:center"></p>
     </div>
+
     <div id="rooms" class="grid"></div>
+
     <div id="allResults" class="card hidden">
       <div class="row" style="justify-content:space-between">
         <h2>Resultados de los tres grupos</h2>
@@ -153,15 +184,16 @@ canvas{max-width:150px}
 <script>
 const SUPABASE_URL='https://mxmmzcbuxqqrwowjcfna.supabase.co';
 const SUPABASE_ANON_KEY='sb_publishable_rpHD5mBTIO4_46I2GfKg-g_j1ib1AM9';
-const ADMIN_PASSWORD='1234';
+const ADMIN_PASSWORD='PruebA26';
 
-const configured=true; 
+const configured=true;
 const db=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 
+// 1 secuencia por cada longitud (8 ensayos por subprueba · 24 ensayos en total)
 const stages=[
-{name:'Dígitos directos',instruction:'Escucha y repite los números en el mismo orden.',items:[['4 8','7 2'],['3 9 1','6 2 8'],['5 1 7 3','8 4 2 9'],['2 6 9 4 1','7 3 5 8 2'],['9 2 4 6 1 8','3 7 1 5 9 2'],['6 1 8 3 5 9 2','4 9 2 7 1 6 8'],['5 8 2 9 1 6 4 7','3 6 9 1 4 8 2 5'],['7 2 5 9 3 1 8 4 6','2 8 4 1 7 9 5 3 6']]},
-{name:'Dígitos inversos',instruction:'Escucha y repite los números en orden inverso.',items:[['6 2','9 4'],['3 8 1','5 2 7'],['7 1 4 9','2 8 5 3'],['4 9 2 6 1','8 3 7 5 2'],['1 6 3 8 5 2','9 4 7 1 6 3'],['5 2 8 1 7 4 9','3 6 1 9 4 7 2'],['8 3 6 1 9 4 2 7','2 7 4 9 1 5 8 3'],['4 1 8 6 2 9 5 3 7','9 5 2 7 4 1 8 6 3']]},
-{name:'Dígitos en secuencia',instruction:'Escucha y escribe los números de menor a mayor.',items:[['8 2','6 1'],['5 9 2','7 3 1'],['8 4 1 6','3 9 2 7'],['6 2 9 4 1','8 3 5 2 7'],['9 1 6 3 8 2','4 7 2 9 5 1'],['5 8 1 7 3 9 2','6 2 9 4 1 8 5'],['7 3 9 1 5 8 2 6','4 8 2 7 1 9 3 5'],['6 2 9 4 1 8 3 7 5','8 5 1 9 3 6 2 7 4']]}
+{name:'Dígitos directos',instruction:'Escucha y repite los números en el mismo orden.',items:[['4 8'],['3 9 1'],['5 1 7 3'],['2 6 9 4 1'],['9 2 4 6 1 8'],['6 1 8 3 5 9 2'],['5 8 2 9 1 6 4 7'],['7 2 5 9 3 1 8 4 6']]},
+{name:'Dígitos inversos',instruction:'Escucha y repite los números en orden inverso.',items:[['6 2'],['3 8 1'],['7 1 4 9'],['4 9 2 6 1'],['1 6 3 8 5 2'],['5 2 8 1 7 4 9'],['8 3 6 1 9 4 2 7'],['4 1 8 6 2 9 5 3 7']]},
+{name:'Dígitos en secuencia',instruction:'Escucha y escribe los números de menor a mayor.',items:[['8 2'],['5 9 2'],['8 4 1 6'],['6 2 9 4 1'],['9 1 6 3 8 2'],['5 8 1 7 3 9 2'],['7 3 9 1 5 8 2 6'],['6 2 9 4 1 8 3 7 5']]}
 ];
 
 const trials=stages.flatMap((s,si)=>s.items.flatMap((pair,pi)=>pair.map((seq,ai)=>({stage:si,item:pi,attempt:ai,seq}))));
@@ -175,8 +207,94 @@ const DIGIT_MS=1000;     // un dígito por segundo
 const DIGIT_LEAD=600;    // pequeño margen antes del primer dígito
 const START_DELAY=4000;  // cuenta atrás antes del primer ensayo (da tiempo a que lleguen los móviles)
 
-// ---- Estado del proyector (solo pantalla de la investigadora) ----
+// ---- Estado del proyector y música (solo pantalla de la investigadora) ----
 let proj=null,projTimer=null,spoken=new Set(),esVoice=null,pollTimer=null;
+let bgAudio=new Audio();
+bgAudio.loop=true;
+bgAudio.volume=0.25;
+let customMusic={2:null,3:null};
+let defaultMusicReady={2:false,3:false};
+let activeMusicGroup=null;
+
+function groupNumberFromSession(s){
+  if(!s)return null;
+  let m=String(s.group_label||'').match(/([123])/);
+  if(m)return +m[1];
+  let m2=String(s.join_code||'').match(/-G([123])$/i);
+  return m2?+m2[1]:null;
+}
+
+function getMusicSource(g){
+  if(customMusic[g])return customMusic[g];
+  if(defaultMusicReady[g])return `grupo${g}.mp3`;
+  return null;
+}
+
+function updateMusicVolume(val){
+  let v=Math.max(0,Math.min(100,+val||0));
+  $('volValue').textContent=v+'%';
+  bgAudio.volume=v/100;
+}
+
+function selectMusicFile(g,input){
+  let file=input.files&&input.files[0];
+  if(!file)return;
+  if(customMusic[g]&&customMusic[g].startsWith('blob:'))URL.revokeObjectURL(customMusic[g]);
+  customMusic[g]=URL.createObjectURL(file);
+  $('musicLabel'+g).textContent='Archivo seleccionado: '+file.name;
+  if(activeMusicGroup===g){
+    playGroupMusic(g);
+  }
+}
+
+function playGroupMusic(g){
+  if(g!==2&&g!==3){stopBackgroundMusic();return;}
+  let src=getMusicSource(g);
+  if(!src){
+    stopBackgroundMusic();
+    if($('adminStatus'))$('adminStatus').textContent=`Aviso: no hay música configurada para el Grupo ${g} (ni grupo${g}.mp3 ni archivo local).`;
+    return;
+  }
+  activeMusicGroup=g;
+  bgAudio.volume=(+$('musicVol').value||25)/100;
+  if(bgAudio.src!==new URL(src,location.href).href){
+    bgAudio.src=src;
+  }
+  bgAudio.play().catch(()=>{});
+}
+
+function togglePreviewMusic(g){
+  if(activeMusicGroup===g&&!bgAudio.paused){
+    stopBackgroundMusic();
+    return;
+  }
+  playGroupMusic(g);
+}
+
+function stopBackgroundMusic(){
+  activeMusicGroup=null;
+  bgAudio.pause();
+}
+
+async function probeDefaultMusic(g){
+  let file=`grupo${g}.mp3`;
+  try{
+    let res=await fetch(file,{cache:'no-store'});
+    if(res.ok){
+      defaultMusicReady[g]=true;
+      if(!customMusic[g])$('musicLabel'+g).textContent=`Por defecto: ${file} listo`;
+    }else{
+      defaultMusicReady[g]=false;
+      if(!customMusic[g])$('musicLabel'+g).textContent=`No se encontró ${file} (puedes elegir un archivo)`;
+    }
+  }catch(e){
+    defaultMusicReady[g]=false;
+    if(!customMusic[g])$('musicLabel'+g).textContent=`No se encontró ${file} (puedes elegir un archivo)`;
+  }
+}
+
+probeDefaultMusic(2);
+probeDefaultMusic(3);
 
 function showTab(t){
   if(t==='admin'){
@@ -232,7 +350,7 @@ function renderRooms(){
 
 async function advanceGroup(id, targetStatus){
   if(!db)return;
-  // Este clic "desbloquea" la voz en el navegador de la investigadora
+  // Este clic "desbloquea" la voz y la música en el navegador de la investigadora
   if('speechSynthesis' in window){pickVoice();speechSynthesis.resume();}
   // El inicio se fija con la hora del SERVIDOR (no la del portátil) para que todos compartan el mismo reloj
   try{await serverClock()}catch(e){$('adminStatus').textContent='Aviso: no se pudo leer la hora del servidor; se usa la del ordenador.'}
@@ -241,6 +359,9 @@ async function advanceGroup(id, targetStatus){
   if(error){alert('Error al cambiar fase: '+error.message);return}
   rooms=rooms.map(r=>r.id===id?data:r);
   renderRooms();
+  let gNum=groupNumberFromSession(data);
+  if(gNum===2||gNum===3)playGroupMusic(gNum);
+  else stopBackgroundMusic();
   startProjector(data);
 }
 
@@ -275,6 +396,7 @@ function startProjector(s){
 function stopProjector(){
   if(projTimer)clearInterval(projTimer);
   projTimer=null;
+  stopBackgroundMusic();
   if('speechSynthesis' in window)speechSynthesis.cancel();
   if(document.fullscreenElement)document.exitFullscreen();
   $('projector').classList.add('hidden');
@@ -302,6 +424,7 @@ function updateProjector(){
   }
   if(st.kind==='done'){
     clearInterval(projTimer);projTimer=null;
+    stopBackgroundMusic();
     $('projTrial').textContent='';
     $('projSeq').textContent='✓';
     $('projExpected').textContent='';
@@ -397,7 +520,7 @@ function listen(){
 function stageOf(status){return status==='stage0'?0:status==='stage1'?1:status==='stage2'?2:-1}
 
 function getStageIndices(status){
-  let s=stageOf(status), n=stages[0].items.length*2; // 16 ensayos por fase
+  let s=stageOf(status), n=stages[0].items.length; // 8 ensayos por fase
   if(s<0) return {start:0,end:-1};
   return {start:s*n,end:s*n+n-1};
 }
@@ -539,4 +662,3 @@ if(params.get('code')){$('pCode').value=params.get('code');showTab('participant'
 </script>
 </body>
 </html>
-
